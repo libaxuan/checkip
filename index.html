@@ -141,15 +141,15 @@
 
         try {
             const requests = ipList.map(ip =>
-                fetch(`https://api.vore.top/api/IPdata?ip=${ip}`)
+                fetch(`http://ip-api.com/json/${ip}?lang=zh-CN`)
                     .then(res => res.json())
                     .then(data => ({
-                        ip,
-                        province: data.ipdata?.info1 || '未知',
-                        city: data.ipdata?.info2 || '未知',
-                        district: data.ipdata?.info3 || '未知',
-                        isp: data.ipdata?.isp || '未知',
-                        fullInfo: data.adcode?.o || '未知'
+                        ip: data.query || ip,
+                        province: data.regionName || '未知',
+                        city: data.city || '未知',
+                        district: data.zip || '', // 区县信息不详细可留空
+                        isp: data.isp || '未知',
+                        fullInfo: `${data.country || ''} ${data.regionName || ''} ${data.city || ''} ${data.isp || ''}`.trim()
                     }))
                     .catch(error => {
                         console.error(`查询 ${ip} 失败`, error);
