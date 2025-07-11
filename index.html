@@ -7,7 +7,7 @@
     <link rel="icon" href="https://nav.globalnextai.cn/source/face-with-monocle.webp" type="image/webp">
     <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        .container { max-width: 1200px; margin: 20px auto; }
+        .container { max-width: 1600px; margin: 20px auto; }
         .input-area { margin-bottom: 20px; }
         #ipList { height: 150px; }
         .table-hover { margin-top: 20px; }
@@ -15,6 +15,17 @@
         .sortable:hover { background-color: #f8f9fa; }
         .loading { display: none; margin: 20px 0; }
         .error { color: red; }
+        .table-responsive-custom {
+            overflow-x: auto;
+            width: 100%;
+        }
+        table.table {
+            min-width: 1400px;
+        }
+        @media (max-width: 600px) {
+            .container { padding: 0 5px; }
+            table.table { min-width: 900px; font-size: 13px; }
+        }
     </style>
     <!-- posthog 分析   -->
     <script>
@@ -70,26 +81,38 @@
         <div class="mt-2">正在查询中，请稍候...</div>
     </div>
 
+    <!-- 表格外层加横向滚动div -->
+    <div class="table-responsive-custom">
     <table class="table table-hover table-bordered">
-        <thead class="table-light">
-        <tr>
-            <th class="sortable" onclick="sortTable(0)">IP地址</th>
-            <th class="sortable" onclick="sortTable(1)">省份</th>
-            <th class="sortable" onclick="sortTable(2)">城市</th>
-            <th class="sortable" onclick="sortTable(3)">区县</th>
-            <th class="sortable" onclick="sortTable(4)">运营商</th>
-            <th>完整信息</th>
+        <thead class="table-light" id="tableHead">
+        <tr id="tableHeadRow">
+            <th>IP地址</th>
+            <th>IP类型</th>
+            <th>所属国家</th>
+            <th>所在城市</th>
+            <th>运营商</th>
+            <th>地理位置</th>
         </tr>
         </thead>
         <tbody id="resultTable">
         </tbody>
     </table>
+    </div>
 </div>
 
 <script>
     let currentData = [];
     let sortOrder = 1; // 1: 升序, -1: 降序
     let debounceTimeout;
+    // 只保留这6个字段，调整顺序和表头
+    const displayFields = [
+        { key: 'ip', label: 'IP地址' },
+        { key: 'type', label: 'IP类型' },
+        { key: 'country', label: '所属国家' },
+        { key: 'city', label: '所在城市' },
+        { key: 'isp', label: '运营商' },
+        { key: 'geo', label: '地理位置' }
+    ];
 
     async function fetchIp() {
         try {
@@ -141,19 +164,23 @@
 
         try {
             const requests = ipList.map(ip =>
-                fetch(`http://ip-api.com/json/${ip}?lang=zh-CN`)
+                fetch(`https://ipwhois.app/json/${ip}?lang=zh-CN`)
                     .then(res => res.json())
-                    .then(data => ({
-                        ip: data.query || ip,
-                        province: data.regionName || '未知',
-                        city: data.city || '未知',
-                        district: data.zip || '', // 区县信息不详细可留空
-                        isp: data.isp || '未知',
-                        fullInfo: `${data.country || ''} ${data.regionName || ''} ${data.city || ''} ${data.isp || ''}`.trim()
-                    }))
+                    .then(data => {
+                        data.ip = data.ip || ip;
+                        // 组装只需要的字段
+                        return {
+                            ip: data.ip,
+                            country: data.country || '',
+                            city: data.city || '',
+                            isp: data.isp || data.connection?.isp || '',
+                            geo: (data.latitude && data.longitude) ? `${data.latitude},${data.longitude}` : '',
+                            type: data.type || ''
+                        };
+                    })
                     .catch(error => {
                         console.error(`查询 ${ip} 失败`, error);
-                        return { ip, province: '查询失败', city: '', district: '', isp: '', fullInfo: '' };
+                        return { ip, country: '查询失败', city: '', isp: '', geo: '', type: '' };
                     })
             );
 
@@ -176,25 +203,20 @@
 
     function updateTable(data) {
         const tbody = document.getElementById('resultTable');
-        tbody.innerHTML = data.map(item => `
-                <tr>
-                    <td>${item.ip}</td>
-                    <td>${item.province}</td>
-                    <td>${item.city}</td>
-                    <td>${item.district}</td>
-                    <td>${item.isp}</td>
-                    <td>${item.fullInfo}</td>
-                </tr>
-            `).join('');
+        tbody.innerHTML = data.map(item =>
+            `<tr>${displayFields.map(f => `<td>${item[f.key] !== undefined ? item[f.key] : ''}</td>`).join('')}</tr>`
+        ).join('');
     }
 
     function sortTable(columnIndex) {
+        const field = displayFields[columnIndex].key;
         currentData.sort((a, b) => {
-            const valA = Object.values(a)[columnIndex];
-            const valB = Object.values(b)[columnIndex];
-            return typeof valA === 'number' && typeof valB === 'number'
-                ? (valA - valB) * sortOrder
-                : valA.localeCompare(valB) * sortOrder;
+            const valA = a[field];
+            const valB = b[field];
+            if (typeof valA === 'number' && typeof valB === 'number') {
+                return (valA - valB) * sortOrder;
+            }
+            return String(valA || '').localeCompare(String(valB || '')) * sortOrder;
         });
         sortOrder *= -1;
         updateTable(currentData);
@@ -202,17 +224,18 @@
 
     function exportCSV() {
         if (currentData.length === 0) return;
-
         const csvContent = [
-            ['IP地址', '省份', '城市', '区县', '运营商', '完整信息'].join(','),
-            ...currentData.map(item => [
-                item.ip,
-                item.province,
-                item.city,
-                item.district,
-                item.isp,
-                `"${item.fullInfo}"`
-            ].join(','))
+            displayFields.map(f => f.label).join(','),
+            ...currentData.map(item =>
+                displayFields.map(f => {
+                    let val = item[f.key];
+                    if (val === undefined) val = '';
+                    if (typeof val === 'string' && (val.includes(',') || val.includes('"') || val.includes('\n'))) {
+                        val = '"' + val.replace(/"/g, '""') + '"';
+                    }
+                    return val;
+                }).join(',')
+            )
         ].join('\n');
 
         const blob = new Blob([csvContent], { type: 'text/csv' });
