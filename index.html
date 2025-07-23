@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,24 +8,58 @@
     <link rel="icon" href="https://nav.globalnextai.cn/source/face-with-monocle.webp" type="image/webp">
     <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        .container { max-width: 1600px; margin: 20px auto; }
-        .input-area { margin-bottom: 20px; }
-        #ipList { height: 150px; }
-        .table-hover { margin-top: 20px; }
-        .sortable { cursor: pointer; }
-        .sortable:hover { background-color: #f8f9fa; }
-        .loading { display: none; margin: 20px 0; }
-        .error { color: red; }
+        .container {
+            max-width: 1600px;
+            margin: 20px auto;
+        }
+
+        .input-area {
+            margin-bottom: 20px;
+        }
+
+        #ipList {
+            height: 150px;
+        }
+
+        .table-hover {
+            margin-top: 20px;
+        }
+
+        .sortable {
+            cursor: pointer;
+        }
+
+        .sortable:hover {
+            background-color: #f8f9fa;
+        }
+
+        .loading {
+            display: none;
+            margin: 20px 0;
+        }
+
+        .error {
+            color: red;
+        }
+
         .table-responsive-custom {
             overflow-x: auto;
             width: 100%;
         }
+
         table.table {
             min-width: 1400px;
         }
+
         @media (max-width: 600px) {
-            .container { padding: 0 5px; }
-            table.table { min-width: 900px; font-size: 13px; }
+            .container {
+                padding: 0 5px;
+            }
+
+            table.table {
+                min-width: 900px;
+                font-size: 13px;
+            }
         }
     </style>
     <!-- posthog 分析   -->
@@ -55,213 +90,224 @@
         })
     </script>
 </head>
+
 <body>
-<div class="container">
-    <h2 class="mb-4">IP归属地信息批量查询</h2>
+    <div class="container">
+        <h2 class="mb-4">IP归属地信息批量查询</h2>
 
-    <div class="input-area">
-        <div class="row">
-            <div class="col-md-9">
-                <textarea class="form-control" id="ipList"
-                          placeholder="请输入要查询的IP地址，每行一个（最多100个）"></textarea>
-                <div id="error-message" class="error"></div>
+        <div class="input-area">
+            <div class="row">
+                <div class="col-md-9">
+                    <textarea class="form-control" id="ipList" placeholder="请输入要查询的IP地址，每行一个（最多100个）"></textarea>
+                    <div id="error-message" class="error"></div>
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-primary w-100 mb-2" id="queryButton" onclick="startQuery()">执行查询</button>
+                    <button class="btn btn-success w-100 mb-2" onclick="exportCSV()">导出CSV</button>
+                    <button class="btn btn-info w-100" onclick="location.href='https://chaipip.com'">IP查定位</button>
+                </div>
             </div>
-            <div class="col-md-3">
-                <button class="btn btn-primary w-100 mb-2" id="queryButton" onclick="startQuery()">执行查询</button>
-                <button class="btn btn-success w-100 mb-2" onclick="exportCSV()">导出CSV</button>
-                <button class="btn btn-info w-100" onclick="location.href='https://chaipip.com'">IP查定位</button>
+        </div>
+
+        <div class="loading text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
             </div>
+            <div class="mt-2">正在查询中，请稍候...</div>
+        </div>
+
+        <!-- 表格外层加横向滚动div -->
+        <div class="table-responsive-custom">
+            <table class="table table-hover table-bordered">
+                <thead class="table-light" id="tableHead">
+                    <tr id="tableHeadRow">
+                        <th>IP地址</th>
+                        <th>IP类型</th>
+                        <th>所属国家</th>
+                        <th>所在城市</th>
+                        <th>运营商</th>
+                        <th>地理位置</th>
+                    </tr>
+                </thead>
+                <tbody id="resultTable">
+                </tbody>
+            </table>
         </div>
     </div>
 
-    <div class="loading text-center">
-        <div class="spinner-border text-primary" role="status">
-            <span class="visually-hidden">Loading...</span>
-        </div>
-        <div class="mt-2">正在查询中，请稍候...</div>
-    </div>
+    <script>
+        let currentData = [];
+        let sortOrder = 1; // 1: 升序, -1: 降序
+        let debounceTimeout;
+        // 只保留这6个字段，调整顺序和表头
+        const displayFields = [
+            { key: 'ip', label: 'IP地址' },
+            { key: 'type', label: 'IP类型' },
+            { key: 'country', label: '所属国家' },
+            { key: 'city', label: '所在城市' },
+            { key: 'isp', label: '运营商' },
+            { key: 'geo', label: '地理位置' }
+        ];
 
-    <!-- 表格外层加横向滚动div -->
-    <div class="table-responsive-custom">
-    <table class="table table-hover table-bordered">
-        <thead class="table-light" id="tableHead">
-        <tr id="tableHeadRow">
-            <th>IP地址</th>
-            <th>IP类型</th>
-            <th>所属国家</th>
-            <th>所在城市</th>
-            <th>运营商</th>
-            <th>地理位置</th>
-        </tr>
-        </thead>
-        <tbody id="resultTable">
-        </tbody>
-    </table>
-    </div>
-</div>
-
-<script>
-    let currentData = [];
-    let sortOrder = 1; // 1: 升序, -1: 降序
-    let debounceTimeout;
-    // 只保留这6个字段，调整顺序和表头
-    const displayFields = [
-        { key: 'ip', label: 'IP地址' },
-        { key: 'type', label: 'IP类型' },
-        { key: 'country', label: '所属国家' },
-        { key: 'city', label: '所在城市' },
-        { key: 'isp', label: '运营商' },
-        { key: 'geo', label: '地理位置' }
-    ];
-
-    async function fetchIp() {
-        try {
-            const response = await fetch('https://httpbin.org/ip');
-            const data = await response.json();
-            document.getElementById('ipList').value = data.origin; // 将获取的IP填入输入框
-            await startQuery(); // 自动执行查询
-        } catch (error) {
-            console.error('获取IP地址失败', error);
-        }
-    }
-
-    function eventProperties() {
-        return {
-            ip: document.getElementById('ipList').value,
-            ipCount: currentData.length
-        };
-    }
-
-    window.onload = function() {
-        fetchIp(); // 页面加载时获取IP地址并执行查询
-        // 发送埋点，保持事件名称和属性一致
-        const eventName = 'check_ip_page_load';
-        // 发送 PostHog 埋点
-        posthog.capture(eventName, eventProperties());
-    };
-
-    async function startQuery() {
-        const ipList = document.getElementById('ipList').value
-            .split('\n')
-            .map(ip => ip.trim())
-            .filter(ip => ip.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/))
-            .slice(0, 100);
-
-        if (ipList.length === 0) {
-            alert('请输入有效的IP地址');
-            return;
-        }
-
-        // 发送 PostHog 埋点，记录用户输入的 IP 地址
-        posthog.capture('check_ip_query_start', {
-            user_ips: ipList
-        });
-
-        showLoading(true);
-        currentData = [];
-        document.getElementById('error-message').innerText = ''; // 清空错误信息
-        document.getElementById('queryButton').disabled = true; // 禁用按钮
-
-        try {
-            const requests = ipList.map(ip =>
-                fetch(`https://ipwhois.app/json/${ip}?lang=zh-CN`)
-                    .then(res => res.json())
-                    .then(data => {
-                        data.ip = data.ip || ip;
-                        // 组装只需要的字段
-                        return {
-                            ip: data.ip,
-                            country: data.country || '',
-                            city: data.city || '',
-                            isp: data.isp || data.connection?.isp || '',
-                            geo: (data.latitude && data.longitude) ? `${data.latitude},${data.longitude}` : '',
-                            type: data.type || ''
-                        };
-                    })
-                    .catch(error => {
-                        console.error(`查询 ${ip} 失败`, error);
-                        return { ip, country: '查询失败', city: '', isp: '', geo: '', type: '' };
-                    })
-            );
-
-            const results = await Promise.all(requests);
-            currentData = results.filter(r => r.ip);
-            updateTable(currentData);
-        } catch (error) {
-            alert('查询失败，请稍后重试');
-        } finally {
-            showLoading(false);
-            document.getElementById('queryButton').disabled = false; // 启用按钮
-
-            // 发送 PostHog 埋点，记录查询结果
-            posthog.capture('check_ip_query_complete', {
-                user_ips: ipList,
-                result_count: currentData.length
-            });
-        }
-    }
-
-    function updateTable(data) {
-        const tbody = document.getElementById('resultTable');
-        tbody.innerHTML = data.map(item =>
-            `<tr>${displayFields.map(f => `<td>${item[f.key] !== undefined ? item[f.key] : ''}</td>`).join('')}</tr>`
-        ).join('');
-    }
-
-    function sortTable(columnIndex) {
-        const field = displayFields[columnIndex].key;
-        currentData.sort((a, b) => {
-            const valA = a[field];
-            const valB = b[field];
-            if (typeof valA === 'number' && typeof valB === 'number') {
-                return (valA - valB) * sortOrder;
+        async function fetchIp() {
+            try {
+                const response = await fetch('https://httpbin.org/ip');
+                const data = await response.json();
+                document.getElementById('ipList').value = data.origin; // 将获取的IP填入输入框
+                await startQuery(); // 自动执行查询
+            } catch (error) {
+                console.error('获取IP地址失败', error);
             }
-            return String(valA || '').localeCompare(String(valB || '')) * sortOrder;
-        });
-        sortOrder *= -1;
-        updateTable(currentData);
-    }
+        }
 
-    function exportCSV() {
-        if (currentData.length === 0) return;
-        const csvContent = [
-            displayFields.map(f => f.label).join(','),
-            ...currentData.map(item =>
-                displayFields.map(f => {
-                    let val = item[f.key];
-                    if (val === undefined) val = '';
-                    if (typeof val === 'string' && (val.includes(',') || val.includes('"') || val.includes('\n'))) {
-                        val = '"' + val.replace(/"/g, '""') + '"';
-                    }
-                    return val;
-                }).join(',')
-            )
-        ].join('\n');
+        function eventProperties() {
+            return {
+                ip: document.getElementById('ipList').value,
+                ipCount: currentData.length
+            };
+        }
 
-        const blob = new Blob([csvContent], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `IP查询结果_${new Date().toLocaleString()}.csv`;
-        a.click();
-    }
-
-    function showLoading(show) {
-        document.querySelector('.loading').style.display = show ? 'block' : 'none';
-    }
-
-    // 防抖机制
-    function debounce(func, delay) {
-        return function(...args) {
-            clearTimeout(debounceTimeout);
-            debounceTimeout = setTimeout(() => func.apply(this, args), delay);
+        window.onload = function () {
+            fetchIp(); // 页面加载时获取IP地址并执行查询
+            // 发送埋点，保持事件名称和属性一致
+            const eventName = 'check_ip_page_load';
+            // 发送 PostHog 埋点
+            posthog.capture(eventName, eventProperties());
         };
-    }
 
-    // 绑定输入框的输入事件
-    document.getElementById('ipList').addEventListener('input', debounce(function() {
-        document.getElementById('error-message').innerText = ''; // 清空错误信息
-    }, 300));
-</script>
+        async function startQuery() {
+            const ipList = document.getElementById('ipList').value
+                .split('\n')
+                .map(ip => ip.trim())
+                .filter(ip => ip.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/))
+                .slice(0, 100);
+
+            if (ipList.length === 0) {
+                alert('请输入有效的IP地址');
+                return;
+            }
+
+            // 发送 PostHog 埋点，记录用户输入的 IP 地址
+            posthog.capture('check_ip_query_start', {
+                user_ips: ipList
+            });
+
+            showLoading(true);
+            currentData = [];
+            document.getElementById('error-message').innerText = ''; // 清空错误信息
+            document.getElementById('queryButton').disabled = true; // 禁用按钮
+
+            try {
+                const requests = ipList.map(ip =>
+                    fetch(`https://ipwhois.app/json/${ip}?lang=zh-CN`)
+                        .then(res => res.json())
+                        .then(data => {
+                            data.ip = data.ip || ip;
+                            // 组装只需要的字段
+                            return {
+                                ip: data.ip,
+                                country: data.country || '',
+                                city: data.city || '',
+                                isp: data.isp || data.connection?.isp || '',
+                                geo: (data.latitude && data.longitude) ? `${data.latitude},${data.longitude}` : '',
+                                type: data.type || ''
+                            };
+                        })
+                        .catch(error => {
+                            console.error(`查询 ${ip} 失败`, error);
+                            return { ip, country: '查询失败', city: '', isp: '', geo: '', type: '' };
+                        })
+                );
+
+                const results = await Promise.all(requests);
+                currentData = results.filter(r => r.ip);
+                updateTable(currentData);
+            } catch (error) {
+                alert('查询失败，请稍后重试');
+            } finally {
+                showLoading(false);
+                document.getElementById('queryButton').disabled = false; // 启用按钮
+
+                // 发送 PostHog 埋点，记录查询结果
+                posthog.capture('check_ip_query_complete', {
+                    user_ips: ipList,
+                    result_count: currentData.length
+                });
+            }
+        }
+
+        function updateTable(data) {
+            const tbody = document.getElementById('resultTable');
+            tbody.innerHTML = data.map(item =>
+                `<tr>${displayFields.map(f => `<td>${item[f.key] !== undefined ? item[f.key] : ''}</td>`).join('')}</tr>`
+            ).join('');
+        }
+
+        function sortTable(columnIndex) {
+            const field = displayFields[columnIndex].key;
+            currentData.sort((a, b) => {
+                const valA = a[field];
+                const valB = b[field];
+                if (typeof valA === 'number' && typeof valB === 'number') {
+                    return (valA - valB) * sortOrder;
+                }
+                return String(valA || '').localeCompare(String(valB || '')) * sortOrder;
+            });
+            sortOrder *= -1;
+            updateTable(currentData);
+        }
+
+        function exportCSV() {
+            if (currentData.length === 0) return;
+            const csvContent = [
+                displayFields.map(f => f.label).join(','),
+                ...currentData.map(item =>
+                    displayFields.map(f => {
+                        let val = item[f.key];
+                        if (val === undefined) val = '';
+                        if (typeof val === 'string' && (val.includes(',') || val.includes('"') || val.includes('\n'))) {
+                            val = '"' + val.replace(/"/g, '""') + '"';
+                        }
+                        return val;
+                    }).join(',')
+                )
+            ].join('\n');
+
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+
+            // 使用更简单的日期格式，避免使用toLocaleString
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+
+            a.download = `IP查询结果_${year}-${month}-${day}_${hours}-${minutes}-${seconds}.csv`;
+            a.click();
+        }
+
+        function showLoading(show) {
+            document.querySelector('.loading').style.display = show ? 'block' : 'none';
+        }
+
+        // 防抖机制
+        function debounce(func, delay) {
+            return function (...args) {
+                clearTimeout(debounceTimeout);
+                debounceTimeout = setTimeout(() => func.apply(this, args), delay);
+            };
+        }
+
+        // 绑定输入框的输入事件
+        document.getElementById('ipList').addEventListener('input', debounce(function () {
+            document.getElementById('error-message').innerText = ''; // 清空错误信息
+        }, 300));
+    </script>
 </body>
+
 </html>
